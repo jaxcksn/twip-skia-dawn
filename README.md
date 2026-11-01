@@ -14,3 +14,19 @@ build itself.
 2. Download and unpack `skia-binaries.tar.gz` from a release.
 3. Build with `SKIA_BINARIES_URL=file://<path to skia-binaries.tar.gz>`. Linking needs emsdk at `EMSDK_VERSION` and
    `--use-port=<emdawnwebgpu_pkg>/emdawnwebgpu.port.py` from Dawn's `DAWN_TAG` release.
+
+## Windows
+
+`.github/workflows/build-windows.yml` builds skia-bindings for `x86_64-pc-windows-msvc` with Graphite on native Dawn
+(D3D12, D3D11 and Vulkan backends) next to Graphite on Vulkan, and publishes `<crate version>-windows-<commit>`. Its
+`skia-binaries.tar.gz` adds `dawn_combined.lib`, Dawn's headers (`dawn/include`) and Skia's to the binary-cache
+layout. Use it the same way with the workflow's `FEATURES`; the consumer links `dawn_combined.lib` itself and calls
+`dawnProcSetProcs` before using the WebGPU API.
+
+## macOS
+
+`.github/workflows/build-macos.yml` builds skia-bindings for `aarch64-apple-darwin` with Graphite on native Dawn (Metal
+backend) next to Graphite on Vulkan, and publishes `<crate version>-macos-<commit>`. Its `skia-binaries.tar.gz` adds
+`libdawn_combined.a`, Dawn's headers (`dawn/include`) and Skia's. The consumer links `libdawn_combined.a` and the
+Foundation, IOSurface, IOKit, Metal, QuartzCore and Cocoa frameworks itself, and calls `dawnProcSetProcs` before using
+the WebGPU API.

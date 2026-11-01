@@ -1,0 +1,133 @@
+# Builds skia-bindings (crates.io) for x86_64-pc-windows-msvc with Graphite on native Dawn (D3D12, D3D11 and Vulkan
+# backends) next to Graphite on Vulkan. rust-skia's Skia trims Dawn and its dependencies from DEPS, so they are fetched
+# at upstream Skia chrome/m153's pins, and Dawn's CMake build is switched to the DLL CRT (/MD) skia-bindings builds
+# Skia with. Publishes release <crate version>-windows-<commit> with asset skia-binaries.tar.gz: skia-bindings'
+# binary-cache layout, plus dawn_combined.lib and the Skia and Dawn headers for consumers' own C++.
+name: build-windows
+
+on:
+  push:
+    branches: [main, windows-dawn]
+    paths: [.github/workflows/build-windows.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CRATE_VERSION: 0.153.3
+  SKIA_TAG: m153-0.101.2
+  # Must match the consumer's skia-safe features (plus skia-bindings' defaults).
+  FEATURES: graphite,vulkan
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install tools
+        run: |
+          git config --global core.longpaths true
+          # Dawn's CMake build runs Ninja from PATH.
+          choco install -y --no-progress ninja
+          echo "LIBCLANG_PATH=C:/Program Files/LLVM/bin" >> "$GITHUB_ENV"
+
+      - name: Skia with Dawn
+        run: |
+          # Short paths: Dawn's and abseil's sources run deep.
+          git clone --depth 1 --branch "$SKIA_TAG" https://github.com/rust-skia/skia.git C:/skia
+          cd C:/skia
+          GIT_SYNC_DEPS_SKIP_EMSDK=1 python tools/git-sync-deps
+          python bin/fetch-gn
+          # Dawn and what its CMake build reads (third_party/dawn/cmake_utils.py), at upstream chrome/m153's pins.
+          while read -r name url; do
+            dir="third_party/externals/$name"
+            git init -q "$dir"
+            # googlesource answers 502 now and then.
+            for try in 1 2 3 4 5; do
+              git -C "$dir" fetch -q --depth 1 "${url%@*}" "${url##*@}" && break
+              [ "$try" = 5 ] && exit 1
+              sleep $((try * 20))
+            done
+            git -C "$dir" checkout -q FETCH_HEAD
+          done <<'PINS'
+          dawn https://dawn.googlesource.com/dawn.git@f91da75afe31d4d6f47a6da307e1fbabd1b1691a
+          abseil-cpp https://chromium.googlesource.com/chromium/src/third_party/abseil-cpp@dd67f5ca84f65ebb88ac0ea0fe2c1d58663e519f
+          egl-registry https://skia.googlesource.com/external/github.com/KhronosGroup/EGL-Registry@b055c9b483e70ecd57b3cf7204db21f5a06f9ffe
+          glslang https://chromium.googlesource.com/external/github.com/KhronosGroup/glslang@1d47ffa8ac4374a19b302021e216a20f22a3de92
+          jinja2 https://chromium.googlesource.com/chromium/src/third_party/jinja2@c3027d884967773057bf74b957e3fea87e5df4d7
+          markupsafe https://chromium.googlesource.com/chromium/src/third_party/markupsafe@4256084ae14175d38a3ff7d739dca83ae49ccec6
+          opengl-registry https://skia.googlesource.com/external/github.com/KhronosGroup/OpenGL-Registry@14b80ebeab022b2c78f84a573f01028c96075553
+          spirv-headers https://skia.googlesource.com/external/github.com/KhronosGroup/SPIRV-Headers.git@0d25db97cb9b8f725e4c95e4553001710e7fc39d
+          spirv-tools https://skia.googlesource.com/external/github.com/KhronosGroup/SPIRV-Tools.git@e39e5c5838bc4b4162c349f2a2e5f163efe5432f
+          vulkan-headers https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Headers@0b7f383797fa7be53ae28213e001ae60668ee511
+          vulkan-utility-libraries https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Utility-Libraries@245b48c522b5375c0acd5377d52bef5e4917f31e
+          webgpu-headers https://chromium.googlesource.com/external/github.com/webgpu-native/webgpu-headers@706853a9da45b8e89b7ea005aa267294d115f8ce
+          PINS
+          # Only checked for: SwiftShader isn't built.
+          mkdir -p third_party/externals/swiftshader
+          # The DLL CRT, as skia-bindings builds Skia (/MD) and Rust links; Dawn's script asks for the static one.
+          sed -i 's/CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"/CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"/; s/ABSL_MSVC_STATIC_RUNTIME=ON/ABSL_MSVC_STATIC_RUNTIME=OFF/' third_party/dawn/cmake_utils.py
+          sed -i '/"libcpmt.lib",/d' third_party/dawn/BUILD.gn
+          grep -q 'MultiThreadedDLL' third_party/dawn/cmake_utils.py
+          grep -q 'ABSL_MSVC_STATIC_RUNTIME=OFF' third_party/dawn/cmake_utils.py
+          # No C++20 module interface: CMake can't scan clang-cl's module imports, and nothing here uses it.
+          sed -i 's/"-DDAWN_ENABLE_INSTALL=OFF",/"-DDAWN_ENABLE_INSTALL=OFF", "-DDAWN_SUPPORTS_CXX_MODULES=OFF", "-DCMAKE_CXX_SCAN_FOR_MODULES=OFF",/' third_party/dawn/build_dawn.py
+          grep -q 'DAWN_SUPPORTS_CXX_MODULES=OFF' third_party/dawn/build_dawn.py
+
+      - name: Build skia-bindings
+        run: |
+          cargo new --lib --vcs none C:/probe
+          cd C:/probe
+          cargo add "skia-bindings@=$CRATE_VERSION" --features "$FEATURES"
+          # Same Skia-side optimization as the consumer (twip builds skia-bindings at opt-level "s").
+          printf '\n[profile.release]\nopt-level = "s"\n' >> Cargo.toml
+          export SKIA_SOURCE_DIR=C:/skia
+          export SKIA_GN_ARGS="skia_use_dawn=true dawn_enable_d3d12=true dawn_enable_d3d11=true dawn_enable_vulkan=true"
+          export FORCE_SKIA_BUILD=1
+          # Short paths for the CMake object files too.
+          export CARGO_TARGET_DIR=C:/t
+          cargo build --release
+
+      - name: Package
+        run: |
+          out=$(dirname "$(ls -t C:/t/release/build/skia-bindings-*/out/skia/bindings.rs | head -1)")
+          skia=C:/skia
+          stage="$RUNNER_TEMP/stage/skia-binaries"
+          mkdir -p "$stage"
+          ls "$out"
+          cp "$out"/*.lib "$out/bindings.rs" "$out/skia-defines.txt" "$stage"
+          cp "$out"/*.dat "$stage" 2>/dev/null || true
+          dawn=$(find "$out" -name dawn_combined.lib | head -1)
+          test -n "$dawn"
+          cp "$dawn" "$stage"
+          # Headers for consumers' own C++ against Skia and Dawn (the public headers also include skcms's).
+          cp -r "$skia/include" "$stage/include"
+          (cd "$skia" && find modules/skcms -name '*.h' -exec cp --parents {} "$stage" \;)
+          mkdir -p "$stage/dawn"
+          cp -r "$skia/third_party/externals/dawn/include" "$stage/dawn/include"
+          gen=$(find "$out" -path '*third_party/dawn/include' -type d | head -1)
+          test -n "$gen"
+          cp -r "$gen/." "$stage/dawn/include"
+          cp "$skia/LICENSE" "$stage/LICENSE_SKIA"
+          cp "$skia/third_party/externals/dawn/LICENSE" "$stage/LICENSE_DAWN"
+          # --force-local: GNU tar reads the D: of a Windows path as a remote host.
+          tar --force-local -czf "$RUNNER_TEMP/skia-binaries.tar.gz" -C "$RUNNER_TEMP/stage" skia-binaries
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release="$CRATE_VERSION-windows-$(git rev-parse --short=7 HEAD)"
+          gh release create "$release" "$RUNNER_TEMP/skia-binaries.tar.gz" --target "$GITHUB_SHA" \
+            --title "skia-bindings $CRATE_VERSION for Windows with Dawn ($release)" \
+            --notes "Skia $SKIA_TAG for x86_64-pc-windows-msvc; features $FEATURES; Graphite on native Dawn (D3D12, D3D11, Vulkan) at upstream chrome/m153's Dawn pin, built with the DLL CRT."
