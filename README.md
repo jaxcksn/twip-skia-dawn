@@ -1,4 +1,4 @@
-# skia-wasm-webgpu
+# Twip Skia Dawn
 
 Prebuilt [skia-bindings](https://crates.io/crates/skia-bindings) for `wasm32-unknown-emscripten`, with Skia's Graphite
 running on WebGPU through Dawn's emdawnwebgpu Emscripten port (and Ganesh on WebGL 2). skia-safe publishes no such
