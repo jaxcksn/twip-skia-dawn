@@ -22,3 +22,11 @@ build itself.
 `skia-binaries.tar.gz` adds `dawn_combined.lib`, Dawn's headers (`dawn/include`) and Skia's to the binary-cache
 layout. Use it the same way with the workflow's `FEATURES`; the consumer links `dawn_combined.lib` itself and calls
 `dawnProcSetProcs` before using the WebGPU API.
+
+## macOS
+
+`.github/workflows/build-macos.yml` builds skia-bindings for `aarch64-apple-darwin` with Graphite on native Dawn (Metal
+backend) next to Graphite on Vulkan, and publishes `<crate version>-macos-<commit>`. Its `skia-binaries.tar.gz` adds
+`libdawn_combined.a`, Dawn's headers (`dawn/include`) and Skia's. The consumer links `libdawn_combined.a` and the
+Foundation, IOSurface, IOKit, Metal, QuartzCore and Cocoa frameworks itself, and calls `dawnProcSetProcs` before using
+the WebGPU API.
