@@ -30,3 +30,12 @@ backend) next to Graphite on Vulkan, and publishes `<crate version>-macos-<commi
 `libdawn_combined.a`, Dawn's headers (`dawn/include`) and Skia's. The consumer links `libdawn_combined.a` and the
 Foundation, IOSurface, IOKit, Metal, QuartzCore and Cocoa frameworks itself, and calls `dawnProcSetProcs` before using
 the WebGPU API.
+
+## Linux (musl)
+
+`.github/workflows/build-musl.yml` builds skia-bindings for `x86_64-unknown-linux-musl` and
+`aarch64-unknown-linux-musl` in Alpine 3.24 with Graphite on native Dawn (Vulkan backend) next to Graphite on Vulkan,
+and publishes `<crate version>-musl-<arch>-<commit>`. Its `skia-binaries.tar.gz` adds `libdawn_combined.a`, Dawn's
+headers (`dawn/include`) and Skia's. Build the consumer on Alpine with `RUSTFLAGS="-C target-feature=-crt-static"`
+(skia-bindings' bindgen dlopens libclang); it links `libdawn_combined.a` itself and calls `dawnProcSetProcs` before
+using the WebGPU API.
