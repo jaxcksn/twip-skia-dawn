@@ -1,0 +1,66 @@
+# Builds skia-bindings (crates.io) for x86_64- and aarch64-unknown-linux-gnu with the consumer's features and Skia's own
+# FreeType (embed-freetype), which rust-skia publishes no prebuilt for: the system FreeType 2.14 (Ubuntu 26.04) loads the
+# system HarfBuzz globally, taking over another library's HarfBuzz in the same process. No Dawn, as in build-musl.yml.
+# Publishes release <crate version>-linux-<arch>-<commit> with asset skia-binaries.tar.gz in skia-bindings' binary-cache
+# layout.
+name: build-linux
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/build-linux.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CRATE_VERSION: 0.153.3
+  # Must match the consumer's skia-safe features (plus skia-bindings' defaults).
+  FEATURES: graphite,vulkan,embed-freetype
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-24.04 }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - name: Install tools
+        # fontconfig: Skia's font manager. skia-bindings fetches Skia's sources and gn itself on glibc.
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libfontconfig1-dev ninja-build python3
+
+      - name: Build skia-bindings
+        run: |
+          cargo new --lib --vcs none "$RUNNER_TEMP/probe"
+          cd "$RUNNER_TEMP/probe"
+          cargo add "skia-bindings@=$CRATE_VERSION" --features "$FEATURES"
+          # Same Skia-side optimization as the consumer (twip builds skia-bindings at opt-level "s").
+          printf '\n[profile.release]\nopt-level = "s"\n' >> Cargo.toml
+          export FORCE_SKIA_BUILD=1
+          export SKIA_NINJA_COMMAND=/usr/bin/ninja
+          cargo build --release
+
+      - name: Package
+        run: |
+          out=$(dirname "$(ls -t "$RUNNER_TEMP"/probe/target/release/build/skia-bindings-*/out/skia/bindings.rs | head -1)")
+          stage="$RUNNER_TEMP/stage/skia-binaries"
+          mkdir -p "$stage"
+          ls "$out"
+          cp "$out"/*.a "$out/bindings.rs" "$out/skia-defines.txt" "$stage"
+          cp "$out"/*.dat "$stage" 2>/dev/null || true
+          cp ~/.cargo/registry/src/*/skia-bindings-"$CRATE_VERSION"/skia/LICENSE "$stage/LICENSE_SKIA"
+          tar -czf "$RUNNER_TEMP/skia-binaries.tar.gz" -C "$RUNNER_TEMP/stage" skia-binaries
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release="$CRATE_VERSION-linux-${{ matrix.arch }}-${GITHUB_SHA::7}"
+          gh release create "$release" "$RUNNER_TEMP/skia-binaries.tar.gz" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "skia-bindings $CRATE_VERSION for ${{ matrix.arch }}-unknown-linux-gnu ($release)" \
+            --notes "Skia for ${{ matrix.arch }}-unknown-linux-gnu (built on Ubuntu 24.04); features $FEATURES plus skia-bindings' defaults (pdf, jpeg); no Dawn."

@@ -31,11 +31,10 @@ backend) next to Graphite on Vulkan, and publishes `<crate version>-macos-<commi
 Foundation, IOSurface, IOKit, Metal, QuartzCore and Cocoa frameworks itself, and calls `dawnProcSetProcs` before using
 the WebGPU API.
 
-## Linux (musl)
+## Linux
 
-`.github/workflows/build-musl.yml` builds skia-bindings for `x86_64-unknown-linux-musl` and
-`aarch64-unknown-linux-musl` in Alpine 3.24 with Graphite on native Dawn (Vulkan backend) next to Graphite on Vulkan,
-and publishes `<crate version>-musl-<arch>-<commit>`. Its `skia-binaries.tar.gz` adds `libdawn_combined.a`, Dawn's
-headers (`dawn/include`) and Skia's. Build the consumer on Alpine with `RUSTFLAGS="-C target-feature=-crt-static"`
-(skia-bindings' bindgen dlopens libclang); it links `libdawn_combined.a` itself and calls `dawnProcSetProcs` before
-using the WebGPU API.
+`.github/workflows/build-linux.yml` (glibc, on Ubuntu 24.04) and `.github/workflows/build-musl.yml` (musl, in Alpine
+3.24) build skia-bindings for x86_64 and aarch64 with Graphite on Vulkan and Skia's own FreeType (`embed-freetype`), and
+no Dawn: they serve headless servers, which draw with the CPU. They publish `<crate version>-linux-<arch>-<commit>` and
+`<crate version>-musl-<arch>-<commit>`; rust-skia publishes no prebuilt with these features. Build a musl consumer on
+Alpine with `RUSTFLAGS="-C target-feature=-crt-static"` (skia-bindings' bindgen dlopens libclang).

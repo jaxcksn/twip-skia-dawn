@@ -18,8 +18,9 @@ permissions:
 env:
   CRATE_VERSION: 0.153.3
   SKIA_TAG: m153-0.101.2
-  # Must match the consumer's skia-safe features (plus skia-bindings' defaults).
-  FEATURES: graphite,vulkan
+  # Must match the consumer's skia-safe features (plus skia-bindings' defaults). embed-freetype: Skia's own FreeType,
+  # because the system's (2.14, Alpine 3.23+) loads the system HarfBuzz globally, taking over another library's HarfBuzz.
+  FEATURES: graphite,vulkan,embed-freetype
 
 jobs:
   musl:
